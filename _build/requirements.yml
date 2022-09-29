@@ -7,4 +7,3 @@ collections:
   - name: kubernetes.core
   - name: redhatinsights.insights
   - name: theforeman.foreman
-  - name: community.general
