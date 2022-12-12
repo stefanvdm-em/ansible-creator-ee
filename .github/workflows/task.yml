@@ -1,0 +1,80 @@
+---
+name: task # named after our build tool (taskfile) cli command
+
+on:
+  pull_request:
+    branches: [main, devel]
+  push:
+    branches: [main, devel]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  task:
+    name: ${{ matrix.command }}
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        command:
+          - lint
+          - build
+
+    env:
+      # We use this option only on release pipeline due to the heavy cost
+      # EXTRA_OPTS: --platform linux/amd64,linux/arm64
+      EXPECTED_IMAGES: 1
+
+    steps:
+      - name: Grab the source from Git
+        uses: actions/checkout@v3.1.0
+        with:
+          fetch-depth: 0 # needed to determine version
+
+      - name: Install Task
+        uses: arduino/setup-task@v1
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v4
+        with:
+          # keep this in sync with python version from base container
+          python-version: "3.11" # 3.11 is default on fedora-37
+          cache: "pip"
+
+      - name: Set cache for galaxy
+        uses: actions/cache@v3
+        if: "contains(matrix.command, 'build')"
+        with:
+          path: |
+            collections
+          key: galaxy-${{ hashFiles('_build/requirements.yml') }}
+
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            base:
+              - 'base/**'
+
+      - name: "Run: task base"
+        if: steps.changes.outputs.base == 'true'
+        run: task base
+
+      - name: "Run: task ${{ matrix.command }}"
+        run: task ${{ matrix.command }}
+
+  check: # This job does nothing and is only used for the branch protection
+    if: always()
+    needs:
+      - task
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}
